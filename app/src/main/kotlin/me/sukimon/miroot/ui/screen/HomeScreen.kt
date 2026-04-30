@@ -54,6 +54,7 @@ import me.sukimon.miroot.ui.theme.Green500
 import me.sukimon.miroot.ui.theme.Orange500
 import me.sukimon.miroot.ui.theme.Red500
 import me.sukimon.miroot.util.SystemChecks
+import me.sukimon.miroot.util.SystemChecks.Status
 import me.sukimon.miroot.viewmodel.InjectionState
 import me.sukimon.miroot.viewmodel.MainViewModel
 
@@ -146,11 +147,23 @@ fun HomeScreen(viewModel: MainViewModel) {
 @Composable
 private fun CheckCard(check: SystemChecks.CheckResult) {
     val bgColor by animateColorAsState(
-        if (check.passed) Green500.copy(alpha = 0.1f)
-        else Red500.copy(alpha = 0.1f),
+        when (check.status) {
+            Status.PASS -> Green500.copy(alpha = 0.1f)
+            Status.FAIL -> Red500.copy(alpha = 0.1f)
+            Status.UNKNOWN -> Orange500.copy(alpha = 0.1f)
+        },
         label = "checkBg"
     )
-    val iconColor = if (check.passed) Green500 else Red500
+    val iconColor = when (check.status) {
+        Status.PASS -> Green500
+        Status.FAIL -> Red500
+        Status.UNKNOWN -> Orange500
+    }
+    val icon = when (check.status) {
+        Status.PASS -> Icons.Filled.CheckCircle
+        Status.FAIL -> Icons.Filled.Cancel
+        Status.UNKNOWN -> Icons.Filled.Warning
+    }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -164,7 +177,7 @@ private fun CheckCard(check: SystemChecks.CheckResult) {
             verticalAlignment = Alignment.Top
         ) {
             Icon(
-                imageVector = if (check.passed) Icons.Filled.CheckCircle else Icons.Filled.Cancel,
+                imageVector = icon,
                 contentDescription = null,
                 tint = iconColor,
                 modifier = Modifier.size(24.dp)
@@ -176,7 +189,7 @@ private fun CheckCard(check: SystemChecks.CheckResult) {
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurface
                 )
-                if (check.detail.isNotEmpty() && !check.passed) {
+                if (check.detail.isNotEmpty() && check.status != Status.PASS) {
                     Spacer(Modifier.height(4.dp))
                     Text(
                         check.detail,

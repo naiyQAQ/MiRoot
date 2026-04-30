@@ -39,7 +39,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val results = SystemChecks.runAllChecks()
             _state.value = _state.value.copy(
                 checks = results,
-                allChecksPassed = results.all { it.passed }
+                allChecksPassed = results.none { it.status == SystemChecks.Status.FAIL }
             )
         }
     }
