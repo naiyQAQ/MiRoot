@@ -1,0 +1,73 @@
+# 项目：Magisk Live Injector for Xiaomi HyperOS
+
+请帮我完成一个完整的 Android App 项目，使用 Jetpack Compose + Kotlin，通过 GitHub Actions 构建 APK。
+
+---
+
+## 一、项目背景
+
+小米 HyperOS 2/3（Android 15+）中，系统服务 `miui.mqsas.IMQSNative` 的 transaction code 21 存在提权漏洞：它以 root 身份执行传入的命令，且未校验调用者 UID。在 SELinux Permissive 状态下，普通 App 可以直接通过 Binder IPC 调用该服务，获得 root 执行权限。
+
+本 App 的目标：一键完成 Magisk 注入到 Android 模拟器/设备的全套流程，包括提权、挂载、重启 zygote、隐藏 root 痕迹。核心难点是 zygote 重启会杀死 system_server（IMQSNative 的宿主进程）及所有子进程，必须用 double-fork 将执行流转移给 init 收养。
+顺便提供工具，重启 Magisk （直接向 Magisk 申请 Root 权限）。即重新执行 live_setup.sh 。需要展示给用户的注意事项: Magisk 安装模块后，请不要按 Magisk 中的重启。否则会掉 Root 。来这里重启。一样需要注意，该过程中，zygote 会去世。
+更多提示: 不要修改受 avb 保护的分区，或安装涉及修改类似分区的模块。否则会导致手机变砖。只在 /data 和内存中操作，该 Root 就是安全的。
+
+---
+
+## 二、前置检测（App 启动首页）
+
+App 首页展示 4 项检测卡片，全部通过后才显示「一键注入」按钮。
+
+### 检测项
+
+1. **Android 安全补丁 ≤ 2026-01-01**  
+   读取 `android.os.Build.VERSION.SECURITY_PATCH`，解析为日期，与 `2026-02-01` 比较。小于 2026-02-01 即通过。
+
+2. **Android 版本 ≥ 15（API 35）**  
+   读取 `Build.VERSION.SDK_INT >= 35`。
+
+3. **SELinux 为 Permissive**  
+   读取 `/sys/fs/selinux/enforce` 文件内容，值为 `"0"` 即通过。  
+   若为 `"1"`，显示引导文案："请通过 fastboot 设置 SELinux 为宽松模式：`fastboot oem set-gpu-preemption 0 androidboot.selinux=permissive` （高通的驱动漏洞）。完成后重新打开 App。"
+
+4. **设备为小米，且 CPU 为 骁龙 8gen1-5/8e **  
+   读取 `Build.MANUFACTURER.equalsIgnoreCase("Xiaomi")`。  
+   cpu 如果检测困难，可以先不检测。因为能完成上一步，则一定是有漏洞的 cpu 。
+
+
+### 检测通过后
+
+- 显示绿色「开始注入」按钮。
+- 先发一条 `whoami` 命令到 MQSAS 验证漏洞可用，如果返回 Parcel 0 ，证明漏洞可用
+
+---
+
+## 三、一键注入执行流程
+
+用户点击「开始注入」后，执行以下步骤，UI 实时显示当前阶段和日志。
+
+### 阶段 0：释放文件
+
+App 从 `assets` 目录将以下文件释放到 `context.filesDir`（即 `/data/data/<pkg>/files/`）：
+
+| 文件名 | 说明 |
+|--------|------|
+| `resetprop` | KernelSU 的 system property 修改工具（ARM64 二进制） |
+| `busybox` | BusyBox 静态编译版（ARM64） |
+| `magisk.apk` | Magisk 安装包 |
+| `live_setup.sh` | Magisk 注入脚本（用户提供，见附录 A） |
+| `hide_magisk_root.sh` | 隐藏 root + 重启 zygote 脚本（用户提供，见附录 B） |
+| `daemon_runner` | Double-fork 脱壳程序（C 源码见附录 C，需用 NDK 交叉编译为 ARM64 静态二进制，在 GitHub Actions 中完成编译） |
+| `bootstrap.sh` | 引导脚本（见附录 D） |
+| `master.sh` | 总控脚本（见附录 E） |
+
+释放后对 `filesDir` 下所有文件执行 `chmod 755`。
+
+### 阶段 1：引导执行
+
+通过 Binder 调用 `miui.mqsas.IMQSNative` 的 transaction code 21 。
+命令行参考: 
+实际执行中，需要使用原生 Parcel API 发送数据。adb 直接执行的方案已被封堵。
+adb shell service call miui.mqsas.IMQSNative 21 i32 1 s16 "可执行文件目录" i32 1 s16 "第一个参数" s16 "/dev/null" i32 60
+
+剩下内容请参照其他提权脚本。adb执行.sh 已不可用，但是方案可用。
