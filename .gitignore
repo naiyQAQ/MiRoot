@@ -1,0 +1,18 @@
+*.iml
+.gradle
+/local.properties
+/.idea
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+/app/build
+/app/.cxx
+
+# Binary assets (downloaded/compiled in CI)
+app/src/main/assets/busybox
+app/src/main/assets/resetprop
+app/src/main/assets/magisk.apk
+app/src/main/assets/daemon_runner
