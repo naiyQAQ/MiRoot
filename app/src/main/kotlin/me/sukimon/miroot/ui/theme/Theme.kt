@@ -1,7 +1,9 @@
 package me.sukimon.miroot.ui.theme
 
+import android.content.Context
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
@@ -32,26 +34,30 @@ private val LightColorScheme = lightColorScheme(
     error = Red700
 )
 
+/**
+ * Attempt dynamic color outside of @Composable so try-catch is allowed.
+ * Some OEM ROMs (e.g. HyperOS) have incomplete dynamic color resources.
+ */
+private fun safeDynamicColorScheme(context: Context, dark: Boolean): ColorScheme? {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return null
+    return try {
+        if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+    } catch (_: Exception) {
+        null
+    }
+}
+
 @Composable
 fun HyperRootTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     dynamicColor: Boolean = true,
     content: @Composable () -> Unit
 ) {
+    val context = LocalContext.current
     val colorScheme = when {
-        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            try {
-                val context = LocalContext.current
-                if (darkTheme) dynamicDarkColorScheme(context)
-                else dynamicLightColorScheme(context)
-            } catch (_: Exception) {
-                // Some OEM ROMs have incomplete dynamic color resources
-                if (darkTheme) DarkColorScheme else LightColorScheme
-            }
-        }
-        darkTheme -> DarkColorScheme
-        else -> LightColorScheme
-    }
+        dynamicColor -> safeDynamicColorScheme(context, darkTheme)
+        else -> null
+    } ?: if (darkTheme) DarkColorScheme else LightColorScheme
 
     MaterialTheme(
         colorScheme = colorScheme,
