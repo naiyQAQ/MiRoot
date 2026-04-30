@@ -78,8 +78,25 @@ if $IS64BIT && [ -e "/system/bin/linker" ]; then
 fi
 log "Binaries extracted (ABI=$ABI)"
 
-# ===== Phase 3: Stop zygote =====
-log "Phase 3: Stopping zygote and existing Magisk..."
+# ===== Phase 3: PID wraparound to safe range =====
+log "Phase 3: PID wraparound..."
+last_pid=$(sh -c 'echo $PPID')
+wrapped=0
+while true; do
+  : &
+  current_pid=$!
+  if [ "$current_pid" -lt "$last_pid" ]; then
+    wrapped=1
+  fi
+  if [ "$wrapped" -eq 1 ] && [ "$current_pid" -ge 1600 ]; then
+    break
+  fi
+  last_pid=$current_pid
+done
+log "PID wraparound done (current ~$current_pid)"
+
+# ===== Phase 4: Stop zygote =====
+log "Phase 4: Stopping zygote and existing Magisk..."
 magisk --stop 2>/dev/null
 stop
 if [ -d /debug_ramdisk ]; then
@@ -95,8 +112,8 @@ if ! grep -q ' /cache ' /proc/mounts; then
 fi
 log "Zygote stopped"
 
-# ===== Phase 4: Setup Magisk tmpfs overlay =====
-log "Phase 4: Setting up Magisk overlay..."
+# ===== Phase 5: Setup Magisk tmpfs overlay =====
+log "Phase 5: Setting up Magisk overlay..."
 MAGISKTMP=/sbin
 
 if mount | grep -q rootfs; then
@@ -166,8 +183,8 @@ export MAGISKTMP
 MAKEDEV=1 $MAGISKTMP/magisk --preinit-device >> "$LOG" 2>&1
 log "Magisk overlay ready"
 
-# ===== Phase 5: SELinux policy patching =====
-log "Phase 5: Patching SELinux policy..."
+# ===== Phase 6: SELinux policy patching =====
+log "Phase 6: Patching SELinux policy..."
 RULESCMD=""
 rule="$MAGISKTMP/.magisk/preinit/sepolicy.rule"
 [ -f "$rule" ] && RULESCMD="--apply $rule"
@@ -183,12 +200,12 @@ if [ -d /sys/fs/selinux ]; then
 fi
 log "SELinux policy patched"
 
-# ===== Phase 6: Start Magisk daemon (post-fs-data) =====
-log "Phase 6: Starting Magisk post-fs-data..."
+# ===== Phase 7: Start Magisk daemon (post-fs-data) =====
+log "Phase 7: Starting Magisk post-fs-data..."
 $MAGISKTMP/magisk --post-fs-data >> "$LOG" 2>&1
 
-# ===== Phase 7: Hide root traces BEFORE restarting zygote =====
-log "Phase 7: Hiding root traces..."
+# ===== Phase 8: Hide root traces BEFORE restarting zygote =====
+log "Phase 8: Hiding root traces..."
 
 # Use the bundled resetprop (from Magisk overlay)
 $MAGISKTMP/resetprop ro.debuggable 0
@@ -200,12 +217,12 @@ $MAGISKTMP/resetprop ro.boot.selinux enforcing
 pkill -9 adbd 2>/dev/null
 log "Root traces hidden"
 
-# ===== Phase 8: Restart zygote (SINGLE restart) =====
-log "Phase 8: Restarting zygote..."
+# ===== Phase 9: Restart zygote (SINGLE restart) =====
+log "Phase 9: Restarting zygote..."
 start
 
-# ===== Phase 9: Complete Magisk boot sequence =====
-log "Phase 9: Completing Magisk boot..."
+# ===== Phase 10: Complete Magisk boot sequence =====
+log "Phase 10: Completing Magisk boot..."
 $MAGISKTMP/magisk --service >> "$LOG" 2>&1
 
 # Wait for zygote to be ready
@@ -213,9 +230,10 @@ sleep 3
 $MAGISKTMP/magisk --boot-complete >> "$LOG" 2>&1
 log "Magisk boot complete"
 
-# ===== Phase 10: SELinux context restoration =====
-log "Phase 10: Restoring SELinux contexts..."
+# ===== Phase 11: Restore SELinux to Enforcing =====
+log "Phase 11: Restoring SELinux and cleaning up..."
 
+# Restore SELinux contexts
 if command -v restorecon >/dev/null 2>&1; then
   restorecon -v /dev/__properties__/u:object_r:adbd_config_prop:s0 >> "$LOG" 2>&1
   restorecon -v /dev/__properties__/u:object_r:shell_prop:s0 >> "$LOG" 2>&1
@@ -223,5 +241,11 @@ if command -v restorecon >/dev/null 2>&1; then
 else
   log "restorecon not available, skipping context restore"
 fi
+
+# Now that Magisk is fully running, restore SELinux to Enforcing
+# Magisk patches the policy so it keeps working under Enforcing
+log "Setting SELinux back to Enforcing..."
+setenforce 1
+log "SELinux restored to Enforcing"
 
 log "===== HyperRoot injection complete! ====="
