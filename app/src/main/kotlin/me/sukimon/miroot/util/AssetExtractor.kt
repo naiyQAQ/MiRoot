@@ -31,8 +31,9 @@ object AssetExtractor {
                         input.copyTo(output)
                     }
                 }
-                outFile.setExecutable(true, false)
-                outFile.setReadable(true, false)
+                // chmod 755 via shell — Java's setExecutable doesn't reliably
+                // set permissions for other UIDs
+                Runtime.getRuntime().exec(arrayOf("chmod", "755", outFile.absolutePath)).waitFor()
             }
             Result.success(filesDir)
         } catch (e: Exception) {
@@ -41,13 +42,11 @@ object AssetExtractor {
     }
 
     /**
-     * Make all files in the directory executable.
+     * Make all files in the directory executable (chmod 755).
      */
     fun chmodAll(dir: File) {
         dir.listFiles()?.forEach { file ->
-            file.setExecutable(true, false)
-            file.setReadable(true, false)
-            file.setWritable(true, false)
+            Runtime.getRuntime().exec(arrayOf("chmod", "755", file.absolutePath)).waitFor()
         }
     }
 }
