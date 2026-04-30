@@ -83,9 +83,13 @@ jobs:
       - name: Compile daemon_runner (ARM64 static binary)
         run: |
           NDK=$ANDROID_HOME/ndk/28.2.13676358
-          CLANG=$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android35-clang
+          TOOLCHAIN=$NDK/toolchains/llvm/prebuilt/linux-x86_64
+          CLANG=$TOOLCHAIN/bin/aarch64-linux-android35-clang
+          STRIP=$TOOLCHAIN/bin/llvm-strip
           echo "--- Compiling daemon_runner ---"
-          $CLANG -static -O2 -o daemon_runner app/src/main/jni/daemon_runner.c
+          $CLANG -static -O2 -s -o daemon_runner app/src/main/jni/daemon_runner.c
+          $STRIP --strip-all daemon_runner
+          ls -lh daemon_runner
           file daemon_runner
           echo "--- Done ---"
 
