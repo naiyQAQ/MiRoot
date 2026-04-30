@@ -121,7 +121,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /**
      * Restart Magisk using su (requires existing root from Magisk).
-     * This re-runs master.sh via su instead of the exploit.
+     * This re-runs master.sh via su, but still needs daemon_runner
+     * to double-fork out of zygote's process tree — otherwise
+     * stopping zygote kills the script itself.
      */
     fun restartMagisk() {
         if (_state.value.isRestarting) return
@@ -143,17 +145,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val filesDir = result.getOrThrow()
                 AssetExtractor.chmodAll(filesDir)
 
-                addLog("重启 Magisk: 通过 su 执行...")
+                addLog("重启 Magisk: 通过 su + daemon_runner 执行...")
 
-                // Use su to run bootstrap.sh directly (already have root)
+                val daemonRunner = File(filesDir, "daemon_runner").absolutePath
+                val bootstrap = File(filesDir, "bootstrap.sh").absolutePath
+
+                // Must use daemon_runner to double-fork, otherwise stopping
+                // zygote kills the script (su runs under zygote's tree)
                 val process = withContext(Dispatchers.IO) {
                     Runtime.getRuntime().exec(
                         arrayOf(
                             "su", "-c",
-                            "${filesDir.absolutePath}/busybox sh ${filesDir.absolutePath}/bootstrap.sh ${filesDir.absolutePath}"
+                            "$daemonRunner $bootstrap ${filesDir.absolutePath}"
                         )
                     )
                 }
+                process.waitFor()
 
                 addLog("Magisk 重启指令已发送")
                 addLog("zygote 将重启，界面可能会短暂消失")
