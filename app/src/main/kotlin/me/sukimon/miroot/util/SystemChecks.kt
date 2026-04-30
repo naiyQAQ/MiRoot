@@ -81,36 +81,32 @@ object SystemChecks {
     }
 
     private fun getSELinuxMode(): String? {
-        // Method 1: android.os.SELinux.isSELinuxEnforced() — works for normal apps
-        try {
-            val seLinuxClass = Class.forName("android.os.SELinux")
-            val isSELinuxEnforced = seLinuxClass.getMethod("isSELinuxEnforced")
-            val enforced = isSELinuxEnforced.invoke(null) as Boolean
-            return if (enforced) "Enforcing" else "Permissive"
-        } catch (_: Exception) {}
+        // Normal apps can't call getenforce or read /sys/fs/selinux/enforce.
+        // android.os.SELinux.isSELinuxEnforced() lies on OEM ROMs.
+        //
+        // Strategy: attempt a harmless operation that SELinux would block
+        // under Enforcing but allow under Permissive. If we can read a
+        // file outside our SELinux context, we're Permissive.
 
-        // Method 2: getenforce command
+        // Method 1: Probe — try reading /proc/1/cmdline (init's cmdline).
+        // App SELinux context (untrusted_app) is denied this under Enforcing
+        // but succeeds under Permissive.
         try {
-            val process = Runtime.getRuntime().exec("getenforce")
-            val output = process.inputStream.bufferedReader().readText().trim()
-            process.waitFor()
-            if (output.equals("Permissive", ignoreCase = true)) return "Permissive"
-            if (output.equals("Enforcing", ignoreCase = true)) return "Enforcing"
-        } catch (_: Exception) {}
+            val content = java.io.File("/proc/1/cmdline").readText()
+            // If we got here without SecurityException/IOException, SELinux didn't block us
+            if (content.isNotEmpty()) return "Permissive"
+        } catch (_: Exception) {
+            // Blocked → Enforcing (or at least not Permissive)
+            return "Enforcing"
+        }
 
-        // Method 3: system property
+        // Method 2: fallback — ro.boot.selinux prop (set by kernel cmdline)
         try {
             val getProp = Runtime.getRuntime().exec(arrayOf("getprop", "ro.boot.selinux"))
             val output = getProp.inputStream.bufferedReader().readText().trim()
             getProp.waitFor()
             if (output.equals("permissive", ignoreCase = true)) return "Permissive"
             if (output.equals("enforcing", ignoreCase = true)) return "Enforcing"
-        } catch (_: Exception) {}
-
-        // Method 4: read file (may work on some ROMs)
-        try {
-            val enforce = java.io.File("/sys/fs/selinux/enforce").readText().trim()
-            return if (enforce == "0") "Permissive" else "Enforcing"
         } catch (_: Exception) {}
 
         return null
